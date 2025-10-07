@@ -22,7 +22,7 @@ $$ B_{\theta, w} = \mathbb{E}_{z \sim \mathcal{N}\ell} [\log (1 - \mathcal{D}_\t
 
 where $z \sim \mathcal{N}\ell$ means that each entry of the $\ell$-dimensional random vector $z$ follows a normal distribution with fixed parameters. In this equation, $\mathcal{D}$ adjusts its parameters $\theta$ to maximize $A\theta$, i.e., the expected good classification on real data, and $B_{\theta, w}$, the expected good classification on generated data. $\mathcal{G}$ adjusts its parameters $w$ to minimize $B_{\theta, w}$ ($w$ does not have impact on $A$), which means that it tries to minimize the expected good classification of $\mathcal{D}$ on generated data. The learning is performed by iterating two steps, named the discriminator learning step and the generator learning step, as described in the following.
 
-### 1. Discriminator learning:
+### 1. Discriminator learning
 
 The first step consists in learning $\theta$ given a fixed $G_w$. The goal is to approximate the parameters $\theta$ which maximize $A_\theta + B_{\theta, w}$ with the actual $w$. This step is performed by a gradient descent (generally using the Adam optimizer [16]) of the following discriminator error function $J_{disc}$ on parameters $\theta$:
 
@@ -34,7 +34,7 @@ $$ \tilde{A}(X_r) = \frac{1}{b} \sum_{x \in X_r} \log(\mathcal{D}\theta(x)); \qu
 
 where $X_r$ is a batch of $b$ real data drawn randomly from the training dataset and $X_g$ a batch of $b$ generated data from $\mathcal{G}$. In the original paper [1], the authors propose to perform few gradient descent iterations to find a good $\theta$ against the fixed $G_w$.
 
-### 2. Generator learning:
+### 2. Generator learning
 
 The second step consists in adapting $\mathbf{w}$ to the new parameters $\boldsymbol{\theta}$. As done for step 1), it is performed by a gradient descent of the following error function $J_{\text{gen}}$ on generator parameters $\mathbf{w}$:
 
@@ -45,14 +45,17 @@ where $Z_g$ is a sample of $b$ $\ell$–dimensional random vectors generated fro
 By iterating those two steps a significant amount of times with different batches (see e.g., [1] for convergence related questions), the GAN ends up with a $\mathbf{w}$ which approximates $\mathbf{w}^*$ well. Such as for standard deep learning, guarantees of convergence are weak [17]. Despite this very recent breakthrough, there are lots of alternative proposals to learn a GAN (e.g., more details can be found in [18], [19], and [20]).
 
 ## Distributed computation setup for GANs
+
 Before we present MD-GAN in the next Section, we introduce the distributed computation setup considered in this paper, and an adaptation of federated learning to GANs.
 
-### a) Learning over a spread dataset:
+### a) Learning over a spread dataset
+
 We consider the following setup. $N$ workers (possibly from several datacenters [8]) are each equipped with a local dataset composed of $m$ samples (each of size $d$) from the same probability distribution $P_{\text{data}}$ (e.g., requests to a voice assistant, holiday pictures). Those local datasets will remain in place (i.e., will not be sent over the network). We denote by $\mathcal{B} = \bigcup_{n=1}^N \mathcal{B}_n$ the entire dataset, with $\mathcal{B}_n$ the dataset local to worker $n$. We assume in the remaining of the paper that the local datasets are i.i.d. on workers, that is to say that there are no bias in the distribution of the data on one particular worker node.
 
 The assumption on the fixed location of data shares is complemented by the use of the parameter server framework we are now presenting.
 
-### b) The parameter server framework:
+### b) The parameter server framework
+
 Despite the general progress of distributed computing towards serverless operation even in datacenters (e.g., use of the gossip paradigm as in Dynamo [21] back in 2007), the case of deep learning systems is specific. Indeed, the amounts of data required to train a deep learning model, and the very iterative nature of the learning tasks (learning on batches of data, followed by operations of back-propagations) makes it necessary to operate in a parallel setup, with the use of a central server. Introduced by Google in 2012 [22], the parameter server framework uses workers for parallel processing, while one or a few central servers are managing shared states modified by those workers (for simplicity, in the remaining of the paper, we will assume the presence of a single central server). The method aims at training the same model on all workers using their given data share, and to synchronize their learning results with the server at each iteration, so that this server can update the model parameters.
 
 Note that more distributed approaches for deep learning, such as gossip-based computation [23], [24], have not yet proven to work efficiently on the data scale required for modern applications; we thus leverage a variant of parameter server framework as our computation setup.
@@ -110,13 +113,13 @@ Note that extra workers can enter the learning task if they enter with a pre-tra
 
 The server hosts generator $\mathcal{G}$ with its associated parameters $\mathbf{w}$. Without loss of generality, this paper exposes the training of GANs for image generation; the server generates new images to train all discriminators and updates $\mathbf{w}$ using error feedbacks.
 
-#### 1) Distribution of generated batches:
+#### 1) Distribution of generated batches
 
 Every global iteration, $\mathcal{G}$ generates a set of $k$ batches $K = \{X^{(1)}, \ldots, X^{(k)}\}$
 
 of size $b$. Each participating worker $n$ is sent two batches among $K$, $X^{(g)}_n$ and $X^{(d)}_n$. This two-batch generation design is required, for the computation of the gradients for both $\mathcal{D}$ and $\mathcal{G}$ on separate data (such as for the original GAN design [1]). A possible way to distribute the $X^{(i)}$ among the $N$ workers could be to set $X^{(g)}_n = X_{((n \mod k)+1)}$ and $X^{(d)}_n = X_{(((n+1) \mod k)+1)}$ for $n = 1, \ldots, N$.
 
-#### 2) Update of generator parameters:
+#### 2) Update of generator parameters
 
 Every global iteration, the server receives the error feedback $F_n$ from every worker $n$, corresponding to the error made by $\mathcal{G}$ on $X^{(g)}_n$. More formally, $F_n$ is composed of $b$ vectors $\{e_{n_1}, \ldots, e_{n_b}\}$, where $e_{n_i}$ is given by
 
@@ -175,11 +178,11 @@ $$
             1. $w_i \leftarrow w_i + \text{Adam}(\Delta w_i)$
     3. End for
 
-#### 3) Workload at the server:
+#### 3) Workload at the server
 
 Placing the generator on the server increases its workload. It generates $k$ batches of $b$ data using $\mathcal{G}$ during the first step of a global iteration, and then receives $N$ error feedbacks of size $bd$ in the third step. The batch generation requires $kbG_{op}$ floating point operations (where $G_{op}$ is the number of floating operations to generate one data object with $\mathcal{G}$) and a memory of $kbG_a$ (with $G_a$ the number of neurons in $\mathcal{G}$). For simplicity, we assume that $G_{op} = O(|w|)$ and that $G_a = O(|w|)$. Consequently the batch generation complexity is $O(kb|w|)$. The merge operation of all feedbacks $F_n$ and the gradient computations imply a memory and computational complexity of $O(b(dN + k|w|))$.
 
-#### 4) The complexity vs. data diversity trade-off.
+#### 4) The complexity vs. data diversity trade-off
 
 At each global iteration, the server generates $k$ batches, with $k < N$. If $k = 1$, all workers receive and compute their feedback on the same training batch. This reduces the diversity of feedbacks received by the generator but also reduces the server workload. If $k = N$, each worker receives a different batch, thus no feedback has conflict on some concurrently processed data. In consequence, there is a trade-off regarding the generator workload: because $k = N$ seems cumbersome, we choose $k = 1$ or $k = \lceil \log(N) \rceil$ for the experiments, and assess the impact of those values on final model performances.
 
@@ -187,17 +190,17 @@ At each global iteration, the server generates $k$ batches, with $k < N$. If $k 
 
 Each worker $n$ hosts a discriminator $\mathcal{D}_n$ and a training dataset $\mathcal{B}_n$. It receives batches of generated images split in two parts: $X_n^{(d)}$ and $X_n^{(g)}$. The generated images $X_n^{(d)}$ are used for training $\mathcal{D}_n$ to discriminate those generated images from real images. The learning is performed as a classical deep learning operation on a standalone server [1]. A worker $n$ computes the gradient $\Delta \theta_n$ of the error function $J_{disc}$ applied to the batch of generated images $X_n^{(d)}$, and a batch or real image $X_n^{(r)}$ taken from $\mathcal{B}_n$. As indicated in Section II-1, this operation is iterated $L$ times. The second batch $X_n^{(g)}$ of generated images is used to compute the error term $F_n$ of generator $\mathcal{G}$. Once computed, $F_n$ is sent to the server for the computation of gradients $\Delta w$.
 
-#### 1) The swapping of discriminators:
+#### 1) The swapping of discriminators
 
 Each discriminator $n$ solely uses $\mathcal{B}_n$ to train its parameters $\theta_n$. If too many iterations are performed on the same local dataset, the discriminator tends to over specialize (which decreases its capacity of generalization). This effect, called *overfitting*, is avoided in MD-GAN by swapping the parameters of discriminators $\theta_n$ between workers after $E$ epochs. The swap is implemented in a gossip fashion, by choosing randomly for every worker another worker to send its parameters to.
 
-#### 2) Workload at workers:
+#### 2) Workload at workers
 
 The goal of MD-GAN is to reduce the workload of workers without moving data shares out of their initial location. Compared to our proposed adapted federated learning method FL-GAN, the generator task is deported on the server. Workers only have to handle their discriminator parameters $\theta_n$ and to compute error feedbacks after $L$ local iterations. Every global iteration, a worker performs $2bD_{op}$ floating point operations (where $D_{op}$ is the number of floating point operations for a feed-forward step of $\mathcal{D}$ for one data object). The memory used at a worker is $O(|\theta|)$.
 
 ### D. The characteristic complexities of MD-GAN
 
-#### 1) Communication complexity:
+#### 1) Communication complexity
 
 In the MD-GAN algorithm there are three types of communications:
 
@@ -213,7 +216,7 @@ We plotted on Figure 2 an analysis of the maximum ingress traffic ($x$-axis) of 
 
 As expected the FL-GAN traffic is constant, because the communications depends only on the model sizes that constitute the GAN; it indicates a target upper bound for the efficiency of MD-GAN. MD-GAN lines crossing FL-GAN is indicating more incurring traffic with increasing batch sizes. A global observation is that MD-GAN is competitive for smaller batch sizes, yet in the order of hundreds of images (here of less than around $b = 550$ for MNIST and $b = 400$ for CIFAR10).
 
-#### 2) Computation complexity:
+#### 2) Computation complexity
 
 The goal of MD-GAN is to remove the generator tasks from workers by having a single one on the server. During the training of MD-GAN, the traffic between workers and the server is reasonable (Table III). The complexity gain on workers in term of memory and computation depends on the architecture of $\mathcal{D}$; it is generally half of the total complexity because $\mathcal{G}$ and $\mathcal{D}$ are often similar. The consequence of this single generator-based algorithm is more frequent interactions between workers and the server, and the creation of a worker-to-worker traffic. The overall operation complexities are summarized and compared in Table II, for both MD-GAN and FL-GAN; the Table indicates a workload of half the one of FL-GAN on workers.
 
