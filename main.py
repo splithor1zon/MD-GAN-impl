@@ -94,47 +94,47 @@ class Client:
         self.one_vector = torch.full((args.g_batch_size,), 1.0 - args.label_smoothing, device=args.device)
         self.zero_vector = torch.full((args.g_batch_size,), args.label_smoothing, device=args.device)
 
-        def train(self, gen_data_d, gen_labels_d, gen_data_g, gen_labels_g):
-            self.netD.train()
-            gen_data_d, gen_labels_d = gen_data_d.to(self.args.device, non_blocking=True), gen_labels_d.to(self.args.device, non_blocking=True)
-            gen_data_g, gen_labels_g = gen_data_g.to(self.args.device, non_blocking=True), gen_labels_g.to(self.args.device, non_blocking=True)
-            epochs_left = self.args.d_epochs
-            while epochs_left > 0: # Loop if there are less real batches than epochs
-                for real_data, real_labels in self.dataloader:
-                    real_data, real_labels = real_data.to(self.args.device, non_blocking=True), real_labels.to(self.args.device, non_blocking=True)
-                    while epochs_left > 0:
-                        self.optimD.zero_grad()
-                        # Real data loss
-                        real_adv, real_aux = self.netD(real_data)
-                        real_loss = self.loss_adv(real_adv, self.one_vector) + self.loss_aux(real_aux, real_labels)
-                        # Generated data loss
-                        gen_adv_d, gen_aux_d = self.netD(gen_data_d)
-                        gen_loss_d = self.loss_adv(gen_adv_d, self.zero_vector) + self.loss_aux(gen_aux_d, gen_labels_d)
-                        # Discriminator update
-                        loss_d = real_loss + gen_loss_d
-                        loss_d.backward()
-                        self.optimD.step()
-                        epochs_left -= 1
-                        if self.args.d_real_batch_variety == 'dynamic':
-                            break  # Use a different real batch next epoch
-                    if epochs_left <= 0:
-                        break  # Completed all epochs
-            
-            # Prepare generator feedback
-            #self.netD.eval()
-            gen_adv_g, gen_aux_g = self.netD(gen_data_g)
-            gen_loss_g = self.loss_adv(gen_adv_g, self.one_vector) + self.loss_aux(gen_aux_g, gen_labels_g)
+    def train(self, gen_data_d, gen_labels_d, gen_data_g, gen_labels_g):
+        self.netD.train()
+        gen_data_d, gen_labels_d = gen_data_d.to(self.args.device, non_blocking=True), gen_labels_d.to(self.args.device, non_blocking=True)
+        gen_data_g, gen_labels_g = gen_data_g.to(self.args.device, non_blocking=True), gen_labels_g.to(self.args.device, non_blocking=True)
+        epochs_left = self.args.d_epochs
+        while epochs_left > 0: # Loop if there are less real batches than epochs
+            for real_data, real_labels in self.dataloader:
+                real_data, real_labels = real_data.to(self.args.device, non_blocking=True), real_labels.to(self.args.device, non_blocking=True)
+                while epochs_left > 0:
+                    self.optimD.zero_grad()
+                    # Real data loss
+                    real_adv, real_aux = self.netD(real_data)
+                    real_loss = self.loss_adv(real_adv, self.one_vector) + self.loss_aux(real_aux, real_labels)
+                    # Generated data loss
+                    gen_adv_d, gen_aux_d = self.netD(gen_data_d)
+                    gen_loss_d = self.loss_adv(gen_adv_d, self.zero_vector) + self.loss_aux(gen_aux_d, gen_labels_d)
+                    # Discriminator update
+                    loss_d = real_loss + gen_loss_d
+                    loss_d.backward()
+                    self.optimD.step()
+                    epochs_left -= 1
+                    if self.args.d_real_batch_variety == 'dynamic':
+                        break  # Use a different real batch next epoch
+                if epochs_left <= 0:
+                    break  # Completed all epochs
+        
+        # Prepare generator feedback
+        #self.netD.eval()
+        gen_adv_g, gen_aux_g = self.netD(gen_data_g)
+        gen_loss_g = self.loss_adv(gen_adv_g, self.one_vector) + self.loss_aux(gen_aux_g, gen_labels_g)
 
-            error_feedback = torch.autograd.grad(gen_loss_g, gen_data_g)[0]
-            print(f"{self.name} - Real D loss: {real_loss.item():.4f}, Generated D loss: {gen_loss_d.item():.4f}, Total D loss: {loss_d.item():.4f}, G Loss: {gen_loss_g.item():.4f}")
-            return error_feedback.detach()
-        
-        def get_model_state(self):
-            return deepcopy(self.netD.state_dict())
-        
-        def set_model_state(self, state_dict):
-            self.netD.load_state_dict(deepcopy(state_dict))
-            self.netD.to(self.args.device)
+        error_feedback = torch.autograd.grad(gen_loss_g, gen_data_g)[0]
+        print(f"{self.name} - Real D loss: {real_loss.item():.4f}, Generated D loss: {gen_loss_d.item():.4f}, Total D loss: {loss_d.item():.4f}, G Loss: {gen_loss_g.item():.4f}")
+        return error_feedback.detach()
+    
+    def get_model_state(self):
+        return deepcopy(self.netD.state_dict())
+    
+    def set_model_state(self, state_dict):
+        self.netD.load_state_dict(deepcopy(state_dict))
+        self.netD.to(self.args.device)
     
 # Server-side code
 
