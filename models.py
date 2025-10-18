@@ -1,7 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-
 import numpy as np
 
 class Gen_MLP(nn.Module):
@@ -65,44 +63,128 @@ class Dis_MLP_ACGAN(nn.Module):
         adversrial = self.fc_adv(x)
         auxiliary = self.fc_aux(x)
         return adversrial, auxiliary
-    
-class Gen_CNN_MNIST(nn.Module):
+
+class Gen_CNN_MNIST_v1(nn.Module):
     """
-    CNN-based Generator for MNIST
+    Simple CNN-based Generator for MNIST.
+    Modeled after the model proposed in the MD-GAN paper, parameter count does not match exactly (mistake in paper?).
+    Built using transposed convolution layers.
+    DOES NOT WORK WELL - CHECKERBOARD ARTIFACTS!
+
     Architecture: 1 FC layer (6,272 neurons) + 2 transposed conv layers (32 and 1 kernels, 5x5)
     Total parameters: 736,769 (latent_dim=100)
-
-    Modeled after the model proposed in the MD-GAN paper, parameter count does not match exactly
     """
-    def __init__(self, latent_dim=100, num_classes=10, img_dim=(1, 28, 28)):
-        super(Gen_CNN_MNIST, self).__init__()
-        assert img_dim == (1, 28, 28), "MNIST images must have dimensions (1, 28, 28)"
+    def __init__(self, latent_dim=100):
+        super(Gen_CNN_MNIST_v1, self).__init__()
         self.latent_dim = latent_dim
-        self.num_classes = num_classes
-        self.img_dim = img_dim
-        self.label_emb = nn.Embedding(num_classes, latent_dim)
+        self.num_classes = 10
+        self.img_dim = (1, 28, 28)
+        self.label_emb = nn.Embedding(self.num_classes, latent_dim)
         
         # Initial size after FC layer: 7x7x128 = 6272
         self.fc = nn.Linear(latent_dim, 7 * 7 * 128)
-        
-        self.conv_layers = nn.Sequential(
+        self.conv1 = nn.Sequential(
             # 7x7x128 -> 14x14x32
             nn.ConvTranspose2d(128, 32, kernel_size=5, stride=2, padding=2, output_padding=1),
             nn.BatchNorm2d(32),
-            nn.ReLU(inplace=True),
+            nn.ReLU(inplace=True)
+        )
+        self.conv2 = nn.Sequential(
             # 14x14x32 -> 28x28x1
             nn.ConvTranspose2d(32, 1, kernel_size=5, stride=2, padding=2, output_padding=1),
             nn.Tanh()
         )
         
     def forward(self, noise, labels):
+        x = torch.mul(self.label_emb(labels), noise)
+        x = self.fc(x)
+        x = x.view(x.size(0), 128, 7, 7)
+        x = self.conv1(x)
+        x = self.conv2(x)
+        return x
+
+class Gen_CNN_MNIST_v2(nn.Module):
+    """
+    CNN-based Generator for MNIST.
+    Based on Gen_CNN_MNIST_1.
+    Improved version using upsampling+convolution to reduce checkerboard artifacts.
+    """
+    def __init__(self, latent_dim=100):
+        super(Gen_CNN_MNIST_v2, self).__init__()
+        self.latent_dim = latent_dim
+        self.num_classes = 10
+        self.img_dim = (1, 28, 28)
+        self.label_emb = nn.Embedding(self.num_classes, latent_dim)
+        
+        # Initial size after FC layer: 7x7x128 = 6272
+        self.fc = nn.Linear(latent_dim, 7 * 7 * 128)
+        self.conv1 = nn.Sequential(
+            # 7x7x128 -> 14x14x32
+            nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.Conv2d(128, 32, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True)
+        )
+        self.conv2 = nn.Sequential(
+            # 14x14x32 -> 28x28x1
+            nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.Conv2d(32, 1, kernel_size=3, stride=1, padding=1),
+            nn.Tanh()
+        )
+
+    def forward(self, noise, labels):
         # Element-wise multiplication of noise and label embedding
         x = torch.mul(self.label_emb(labels), noise)
         x = self.fc(x)
         x = x.view(x.size(0), 128, 7, 7)
-        x = self.conv_layers(x)
+        x = self.conv1(x)
+        x = self.conv2(x)
         return x
-    
+
+class Gen_CNN_MNIST_v3(nn.Module):
+    """
+    CNN-based Generator for MNIST.
+    More complex architecture with 3 convolution layers.
+    """
+    def __init__(self, latent_dim=100):
+        super(Gen_CNN_MNIST_v3, self).__init__()
+        self.latent_dim = latent_dim
+        self.num_classes = 10
+        self.img_dim = (1, 28, 28)
+        self.label_emb = nn.Embedding(self.num_classes, latent_dim)
+
+        # Initial size after FC layer: 7x7x128 = 6272
+        self.fc = nn.Linear(self.latent_dim, 7 * 7 * 128)
+        self.conv1 = nn.Sequential(
+            # 7x7x128 -> 14x14x128
+            nn.BatchNorm2d(128),
+            nn.Upsample(scale_factor=2),
+            nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(128, 0.8),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+        self.conv2 = nn.Sequential(
+            # 14x14x128 -> 28x28x64
+            nn.Upsample(scale_factor=2),
+            nn.Conv2d(128, 64, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(64, 0.8),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+        self.conv3 = nn.Sequential(
+            # 28x28x64 -> 28x28x1
+            nn.Conv2d(64, 1, kernel_size=3, stride=1, padding=1),
+            nn.Tanh()
+        )
+
+    def forward(self, noise, labels):
+        x = torch.mul(self.label_emb(labels), noise)
+        x = self.fc(x)
+        x = x.view(x.size(0), 128, 7, 7)
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.conv3(x)
+        return x
+
 class Gen_CNN_CIFAR10(nn.Module):
     """
     CNN-based Generator for CIFAR10
@@ -143,7 +225,7 @@ class Gen_CNN_CIFAR10(nn.Module):
         x = x.view(x.size(0), 384, 4, 4)
         x = self.conv_layers(x)
         return x
-    
+
 class MinibatchDiscrimination(nn.Module):
     """
     Minibatch discrimination layer as described in the paper "Improved Techniques for Training GANs"
@@ -174,7 +256,7 @@ class MinibatchDiscrimination(nn.Module):
 
         x = torch.cat([x, o_b], 1)
         return x
-    
+
 class Dis_CNN_ACGAN(nn.Module):
     """
     Unified CNN-based Discriminator for both MNIST and CIFAR10 with ACGAN output
@@ -250,46 +332,7 @@ class Dis_CNN_ACGAN(nn.Module):
         adversarial = self.fc_adv(x)  # Real/Fake output
         auxiliary = self.fc_aux(x)  # Class prediction output
         return adversarial, auxiliary
-    
-class Gen_CNN_MNIST_1(nn.Module):
-    def __init__(self, latent_dim=100, num_classes=10):
-        super(Gen_CNN_MNIST_1, self).__init__()
-        self.num_classes = num_classes
-        self.img_size = 32
-        self.color_ch = 1
-        self.latent_dim = latent_dim
 
-        self.label_emb = nn.Embedding(num_classes, latent_dim)
-        self.init_size = self.img_size // 4
-
-        self.fc = nn.Linear(self.latent_dim, 128 * self.init_size ** 2)
-        self.conv1 = nn.Sequential(
-            nn.BatchNorm2d(128),
-            nn.Upsample(scale_factor=2),
-            nn.Conv2d(128, 128, 3, 1, 1),
-            nn.BatchNorm2d(128, 0.8),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-        self.conv2 = nn.Sequential(
-            nn.Upsample(scale_factor=2),
-            nn.Conv2d(128, 64, 3, 1, 1),
-            nn.BatchNorm2d(64, 0.8),
-            nn.LeakyReLU(0.2, inplace=True)
-        )
-        self.conv3 = nn.Sequential(
-            nn.Conv2d(64, self.color_ch, 3, 1, 1),
-            nn.Tanh()
-        )
-
-    def forward(self, noise, labels):
-        gen_input = torch.mul(self.label_emb(labels), noise)
-        out = self.fc(gen_input)
-        out = out.view(out.shape[0], 128, self.init_size, self.init_size)
-        out = self.conv1(out)
-        out = self.conv2(out)
-        out = self.conv3(out)
-        return out
-    
 class Dis_CNN_MNIST_1(nn.Module):
     def __init__(self, num_classes=10, dropout=0.5, relu_slope=0.2):
         super(Dis_CNN_MNIST_1, self).__init__()
@@ -325,23 +368,29 @@ class Dis_CNN_MNIST_1(nn.Module):
         label = self.aux_layer(out)
 
         return validity, label
-    
+
 def select_discriminator(args):
     match (args.d_model, args.dataset):
         case ('mlp', 'mnist' | 'fmnist'):
             netD = Dis_MLP_ACGAN(args.n_classes, args.data_shape)
         case ('cnn', 'mnist' | 'fmnist' | 'cifar10'):
             netD = Dis_CNN_ACGAN(args.n_classes, args.data_shape, args.d_dropout, args.d_relu_slope)
+        case ('cnn1', 'mnist' | 'fmnist'):
+            netD = Dis_CNN_MNIST_1(args.n_classes, args.d_dropout, args.d_relu_slope)
         case _:
             raise ValueError(f'Discriminator model {args.d_model} with dataset {args.dataset} not supported')
     return netD
 
 def select_generator(args):
-    match (args.g_model, args.dataset):
+    match (args.g_model.lower(), args.dataset.lower()):
         case ('mlp', 'mnist' | 'fmnist' | 'cifar10'):
             netG = Gen_MLP(args.g_latent_dim, args.n_classes, args.data_shape)
-        case ('cnn', 'mnist' | 'fmnist'):
-            netG = Gen_CNN_MNIST(args.g_latent_dim, args.n_classes, args.data_shape)
+        case ('cnn-v1', 'mnist' | 'fmnist'):
+            netG = Gen_CNN_MNIST_v1(args.g_latent_dim)
+        case ('cnn-v2', 'mnist' | 'fmnist'):
+            netG = Gen_CNN_MNIST_v2(args.g_latent_dim)
+        case ('cnn-v3', 'mnist' | 'fmnist'):
+            netG = Gen_CNN_MNIST_v3(args.g_latent_dim)
         case ('cnn', 'cifar10'):
             netG = Gen_CNN_CIFAR10(args.g_latent_dim, args.n_classes, args.data_shape)
         case _:
